@@ -223,7 +223,7 @@ def main():
 
     client = ollama.Client(host=host)
     models_data = client.list()
-    available_models = [model['name'] for model in models_data['models']]
+    available_models = [model['model'] for model in models_data['models']]
     print("Available models:")
     for i, model in enumerate(available_models, start=1):
         print(f"{i}. {model}")
