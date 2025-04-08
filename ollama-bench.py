@@ -52,6 +52,8 @@ def run_benchmark(model_name: str, prompt: str, verbose: bool, directory: str, i
         start_time = time.time()
         last_log_time = start_time
 
+        final_response = None
+
         for chunk in stream:
             if 'message' in chunk:
                 message_content = chunk['message']['content']
@@ -59,14 +61,8 @@ def run_benchmark(model_name: str, prompt: str, verbose: bool, directory: str, i
                 if verbose:
                     print(f"Received chunk: {message_content}")
 
-            if not stats_collected and 'done' in chunk and chunk['done']:
-                model_response = OllamaResponse.model_validate(chunk)
-                stats = get_stats_dict(model_response)
-                response_text += "\n\n" + "\n".join([f"{k}: {v}" for k, v in stats.items()])
-                if verbose:
-                    print("\n".join([f"{k}: {v}" for k, v in stats.items()]))
-                stats_collected = True
-                model_usage[model_name] = model_usage.get(model_name, 0) + 1
+            if 'done' in chunk and chunk['done']:
+                final_response = chunk
 
             current_time = time.time()
             if current_time - last_log_time >= 30:
@@ -76,6 +72,31 @@ def run_benchmark(model_name: str, prompt: str, verbose: bool, directory: str, i
 
             if current_time - start_time >= timeout:
                 raise TimeoutError(f"Request {index + 1}: Timeout reached. Request running for too long.")
+
+        if final_response:
+            if isinstance(final_response, dict):
+                model_response = OllamaResponse.model_validate(final_response)
+            else:
+                response_dict = {
+                    'model': model_name,
+                    'created_at': datetime.now(),
+                    'message': {'role': 'assistant', 'content': response_text},
+                    'done': True,
+                    'total_duration': final_response.total_duration if hasattr(final_response, 'total_duration') else 0,
+                    'load_duration': final_response.load_duration if hasattr(final_response, 'load_duration') else 0,
+                    'prompt_eval_count': final_response.prompt_eval_count if hasattr(final_response, 'prompt_eval_count') else -1,
+                    'prompt_eval_duration': final_response.prompt_eval_duration if hasattr(final_response, 'prompt_eval_duration') else 0,
+                    'eval_count': final_response.eval_count if hasattr(final_response, 'eval_count') else 0,
+                    'eval_duration': final_response.eval_duration if hasattr(final_response, 'eval_duration') else 0,
+                }
+                model_response = OllamaResponse.model_validate(response_dict)
+
+            stats = get_stats_dict(model_response)
+            response_text += "\n\n" + "\n".join([f"{k}: {v}" for k, v in stats.items()])
+            if verbose:
+                print("\n".join([f"{k}: {v}" for k, v in stats.items()]))
+            stats_collected = True
+            model_usage[model_name] = model_usage.get(model_name, 0) + 1
 
         if stats_collected:
             response_data = {'Prompt': prompt, 'Response': response_text, 'Model': model_name, **stats}
